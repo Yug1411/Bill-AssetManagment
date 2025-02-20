@@ -6,7 +6,9 @@ const fs = require('fs');
 const path = require('path');
 const cors = require('cors');
 const app = express();
+const dotenv = require('dotenv')
 
+dotenv.config()
 // Middleware setup
 app.use(bodyParser.json());
 app.use(cors({
@@ -18,7 +20,7 @@ app.use(cors({
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Connect to MongoDB
-const uri = "mongodb+srv://yug14114:Yug%402004@cluster0.aqjlk.mongodb.net/";
+const uri = process.env.MONGO_URI;
 
 mongoose.connect(uri, {
   useNewUrlParser: true,
