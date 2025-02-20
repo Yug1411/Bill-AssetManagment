@@ -1,0 +1,52 @@
+.device-summary-container {
+    background-color: var(--card-background);
+    border-radius: 0.5rem;
+    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+    padding: 1.5rem;
+    margin-bottom: 2rem;
+  }
+  
+  .summary-title {
+    font-size: 1.5rem;
+    font-weight: 600;
+    margin-bottom: 1rem;
+    color: var(--primary-color);
+  }
+  
+  .summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+  }
+  
+  .summary-card {
+    background: linear-gradient(to bottom right, var(--primary-color), var(--primary-dark));
+    color: white;
+    padding: 1rem;
+    border-radius: 0.5rem;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  }
+  
+  .summary-card h3 {
+    font-size: 1.2rem;
+    margin-bottom: 0.5rem;
+  }
+  
+  .summary-card p {
+    margin: 0.25rem 0;
+    font-size: 0.9rem;
+  }
+  
+  .progress-bar {
+    background-color: rgba(255, 255, 255, 0.3);
+    border-radius: 9999px;
+    height: 0.5rem;
+    margin-top: 0.5rem;
+    overflow: hidden;
+  }
+  
+  .progress {
+    background-color: white;
+    height: 100%;
+    transition: width 0.3s ease;
+  }
