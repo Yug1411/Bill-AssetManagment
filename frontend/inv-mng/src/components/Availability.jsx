@@ -2,92 +2,166 @@
 
 import { useState, useEffect } from "react"
 import axios from "axios"
-import { Search } from "lucide-react"
-
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table"
+import { Input } from "./ui/input"
+import { Search, RefreshCw, AlertCircle } from "lucide-react"
+import { Button } from "./ui/button"
+import { Alert, AlertDescription } from "./ui/alert"
+import { ScrollArea } from "./ui/scroll-area"
 
 export default function Availability() {
-  const [items, setItems] = useState([])
+  const [availability, setAvailability] = useState({})
   const [searchTerm, setSearchTerm] = useState("")
-
-
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState("")
+  const [isRefreshing, setIsRefreshing] = useState(false)
+  
   useEffect(() => {
-    fetchItems()
+    fetchAvailability()
   }, [])
-
-  const fetchItems = async () => {
+  
+  const fetchAvailability = async () => {
+    setLoading(true)
+    setError("")
     try {
-      const response = await axios.get("http://localhost:5000/bills")
-      const bills = response.data
-      
-      // Aggregate items from all bills
-      const itemMap = new Map()
-      
-      bills.forEach(bill => {
-        bill.items.forEach(item => {
-          if (itemMap.has(item.name)) {
-            const existing = itemMap.get(item.name)
-            itemMap.set(item.name, {
-              ...existing,
-              quantity: existing.quantity + item.quantity
-            })
-          } else {
-            itemMap.set(item.name, {
-              name: item.name,
-              quantity: item.quantity,
-              unitPrice: item.unitPrice
-            })
-          }
-        })
-      })
-
-      setItems(Array.from(itemMap.values()))
+      const response = await axios.get("http://localhost:5000/api/availability")
+      setAvailability(response.data)
+      setLoading(false)
     } catch (error) {
-      console.error("Error fetching items:", error)
+      console.error("Error fetching availability:", error)
+      setError("Failed to load availability data. Please try again.")
+      setLoading(false)
     }
   }
-
+  
+  const handleRefresh = async () => {
+    setIsRefreshing(true)
+    await fetchAvailability()
+    setTimeout(() => setIsRefreshing(false), 500) // Visual feedback for refresh action
+  }
+  
+  const filteredItems = Object.entries(availability).filter(([itemName]) =>
+    itemName.toLowerCase().includes(searchTerm.toLowerCase()),
+  )
+  
+  // Calculate totals for summary
+  const calculateSummary = () => {
+    let totalItems = 0
+    let totalAvailable = 0
+    
+    Object.values(availability).forEach(bills => {
+      bills.forEach(bill => {
+        totalItems += bill.totalQuantity
+        totalAvailable += bill.availableQuantity
+      })
+    })
+    
+    return { totalItems, totalAvailable }
+  }
+  
+  const { totalItems, totalAvailable } = calculateSummary()
+  
   return (
-    <div className="space-y-6">
-      <div className="bg-white rounded-xl shadow-sm">
-        <div className="p-6 border-b">
-          <h2 className="text-xl font-semibold">Item Availability</h2>
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-2xl font-bold">Inventory Availability</h2>
+        <Button 
+          variant="outline" 
+          size="sm" 
+          onClick={handleRefresh} 
+          disabled={isRefreshing}
+          className="flex items-center gap-1"
+        >
+          <RefreshCw className={`w-4 h-4 ${isRefreshing ? "animate-spin" : ""}`} />
+          Refresh
+        </Button>
+      </div>
+      
+      {error && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+      
+      <div className="flex items-center space-x-2 max-w-md">
+        <Search className="w-5 h-5 text-gray-500" />
+        <Input
+          type="text"
+          placeholder="Search items..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          className="flex-1"
+        />
+      </div>
+      
+      <div className="flex justify-between items-center text-sm text-gray-500 mb-2">
+        <div>
+          Showing {filteredItems.length} of {Object.keys(availability).length} items
         </div>
-        <div className="p-6">
-          <div className="mb-4 flex items-center gap-2">
-            <div className="relative flex-1">
-              <input
-                type="text"
-                placeholder="Search items..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full rounded-md border border-gray-300 px-4 py-2 pl-10 focus:border-blue-500 focus:ring-blue-500"
-              />
-              <Search className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
-            </div>
-          </div>
-          <table className="min-w-full">
-            <thead>
-              <tr className="text-left text-sm font-medium text-gray-500">
-                <th className="pb-2">Item</th>
-                <th className="pb-2">Total Quantity</th>
-              </tr>
-            </thead>
-            <tbody className="text-sm">
-              {items
-                .filter(item => 
-                  item.name.toLowerCase().includes(searchTerm.toLowerCase())
-                )
-                .map((item, index) => (
-                  <tr key={index}>
-                    <td className="py-1">{item.name}</td>
-                    <td className="py-1">{item.quantity}</td>
-                  </tr>
-                ))}
-            </tbody>
-          </table>
-
+        <div className="flex gap-4">
+          <span>Total Items: {totalItems}</span>
+          <span>Available Items: {totalAvailable}</span>
         </div>
       </div>
+      
+      <ScrollArea className="h-[500px] border rounded-md">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="min-w-[200px]">Item Name</TableHead>
+              <TableHead>Bill No</TableHead>
+              <TableHead>Total Quantity</TableHead>
+              <TableHead>Available Quantity</TableHead>
+              <TableHead>Status</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {loading ? (
+              <TableRow>
+                <TableCell colSpan={5} className="h-24 text-center">
+                  Loading inventory data...
+                </TableCell>
+              </TableRow>
+            ) : filteredItems.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={5} className="h-24 text-center">
+                  {searchTerm ? "No items match your search" : "No items available"}
+                </TableCell>
+              </TableRow>
+            ) : (
+              filteredItems.map(([itemName, bills]) =>
+                bills.map((bill, index) => (
+                  <TableRow key={`${itemName}-${bill.billId}`}>
+                    {index === 0 && <TableCell rowSpan={bills.length}>{itemName}</TableCell>}
+                    <TableCell>{bill.billNo}</TableCell>
+                    <TableCell>{bill.totalQuantity}</TableCell>
+                    <TableCell>{bill.availableQuantity}</TableCell>
+                    <TableCell>
+                      <div className="flex items-center">
+                        <div 
+                          className={`h-2 w-2 rounded-full mr-2 ${
+                            bill.availableQuantity === 0 
+                              ? "bg-red-500" 
+                              : bill.availableQuantity < bill.totalQuantity * 0.25 
+                                ? "bg-amber-500" 
+                                : "bg-green-500"
+                          }`} 
+                        />
+                        {bill.availableQuantity === 0 
+                          ? "Out of stock" 
+                          : bill.availableQuantity < bill.totalQuantity * 0.25 
+                            ? "Low stock" 
+                            : "In stock"}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )
+            )}
+          </TableBody>
+        </Table>
+      </ScrollArea>
     </div>
   )
 }

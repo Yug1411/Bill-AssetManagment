@@ -1,195 +1,367 @@
-import React, { useState, useEffect } from "react"
-import axios from "axios"
+"use client"
 
-function DeviceAllocationForm() {
+import { useState, useEffect } from "react"
+import axios from "axios"
+import { Button } from "./ui/button"
+import { Input } from "./ui/input"
+import { Label } from "./ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table"
+import { Plus, Minus } from "lucide-react"
+import { Alert, AlertDescription } from "./ui/alert"
+import { ScrollArea } from "./ui/scroll-area"
+
+export default function DeviceAllocationForm() {
+  const [availability, setAvailability] = useState({})
+  const [error, setError] = useState("")
+  const [loading, setLoading] = useState(false)
+  const [selectedItem, setSelectedItem] = useState("")
+  const [selectedBill, setSelectedBill] = useState("")
   const [formData, setFormData] = useState({
-    deviceType: "",
-    assignedTo: "",
+    recipient: "",
+    allocator: "",
     lab: "",
-    assignedBy: "",
-    date: "",
+    dateOfAllocation: new Date().toISOString().split("T")[0],
+    items: [],
   })
 
-  const [deviceOptions, setDeviceOptions] = useState([])
-  const [filteredDeviceOptions, setFilteredDeviceOptions] = useState([])
-  const [isDropdownOpen, setIsDropdownOpen] = useState(false)
+  // Define the fixed department value
+  const DEPARTMENT = "Electronics" // Replace with your actual department name
 
   useEffect(() => {
-    fetchDevices()
+    fetchAvailability()
   }, [])
 
-  const fetchDevices = async () => {
+  const fetchAvailability = async () => {
     try {
-      const response = await axios.get("http://localhost:5000/devices")
-      const devices = response.data.map((device) => device.name)
-      setDeviceOptions(devices)
-      setFilteredDeviceOptions(devices)
+      const response = await axios.get("http://localhost:5000/api/availability")
+      const processedAvailability = {}
+      for (const [itemName, bills] of Object.entries(response.data)) {
+        const totalAvailable = bills.reduce((sum, bill) => sum + bill.availableQuantity, 0)
+        processedAvailability[itemName] = { totalAvailable, bills }
+      }
+      setAvailability(processedAvailability)
     } catch (error) {
-      console.error("Error fetching devices:", error)
+      setError("Error fetching availability: " + (error.response?.data?.error || error.message))
     }
   }
 
-  const handleChange = (e) => {
-    const { name, value } = e.target
-    setFormData({ ...formData, [name]: value })
+  const handleInputChange = (e) => {
+    setError("")
+    setFormData({ ...formData, [e.target.name]: e.target.value })
   }
 
-  const handleDeviceSearch = (e) => {
-    const searchTerm = e.target.value.toLowerCase()
-    const filtered = deviceOptions.filter((device) => device.toLowerCase().includes(searchTerm))
-    setFilteredDeviceOptions(filtered)
-    setFormData({ ...formData, deviceType: e.target.value })
+  const handleItemSelection = (itemName) => {
+    setSelectedItem(itemName)
+    setSelectedBill("") // Reset bill selection when item changes
+    setError("")
+  }
+
+  const handleBillSelection = (billId) => {
+    setSelectedBill(billId)
+    setError("")
+  }
+
+  const handleAddItem = () => {
+    if (!selectedItem || !selectedBill) {
+      setError("Please select both an item and a bill")
+      return
+    }
+
+    // Find the bill with available quantity for this item
+    const billsWithItem = availability[selectedItem]?.bills || []
+    const selectedBillData = billsWithItem.find((bill) => bill.billId === selectedBill)
+
+    if (!selectedBillData) {
+      setError(`Bill not found for ${selectedItem}`)
+      return
+    }
+
+    if (selectedBillData.availableQuantity <= 0) {
+      setError(`No available ${selectedItem} in the selected bill`)
+      return
+    }
+
+    // Create new item with billId
+    const newItem = {
+      itemName: selectedItem,
+      billId: selectedBill,
+      quantity: 1,
+    }
+
+    setFormData({ ...formData, items: [...formData.items, newItem] })
+    setSelectedItem("")
+    setSelectedBill("")
+    setError("")
+  }
+
+  const handleRemoveItem = (index) => {
+    const newItems = formData.items.filter((_, i) => i !== index)
+    setFormData({ ...formData, items: newItems })
+    setError("")
+  }
+
+  const handleQuantityChange = (index, newQuantity) => {
+    const newItems = [...formData.items]
+    const item = newItems[index]
+
+    // Find the bill for this item
+    const billsWithItem = availability[item.itemName]?.bills || []
+    const matchingBill = billsWithItem.find((bill) => bill.billId === item.billId)
+    const maxAvailable = matchingBill?.availableQuantity || 0
+
+    if (isNaN(newQuantity) || newQuantity < 1) {
+      setError(`Quantity must be a positive number`)
+      return
+    }
+
+    if (newQuantity > maxAvailable) {
+      setError(`Only ${maxAvailable} ${item.itemName}(s) available in the selected bill`)
+      return
+    }
+
+    newItems[index].quantity = newQuantity
+    setFormData({ ...formData, items: newItems })
+    setError("")
+  }
+
+  const validateForm = () => {
+    if (!formData.recipient.trim()) return "Recipient is required"
+    if (!formData.allocator.trim()) return "Allocator is required"
+    if (!formData.lab.trim()) return "Lab is required"
+    if (!formData.dateOfAllocation) return "Date of allocation is required"
+    if (formData.items.length === 0) return "At least one item must be added"
+
+    for (const item of formData.items) {
+      // Find the bill for this item
+      const billsWithItem = availability[item.itemName]?.bills || []
+      const matchingBill = billsWithItem.find((bill) => bill.billId === item.billId)
+      const maxAvailable = matchingBill?.availableQuantity || 0
+
+      if (item.quantity > maxAvailable) {
+        return `Insufficient quantity available for ${item.itemName} in the selected bill`
+      }
+    }
+
+    return null
   }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
+    const validationError = validateForm()
+    if (validationError) {
+      setError(validationError)
+      return
+    }
+
+    setLoading(true)
+    setError("")
+
     try {
-      const response = await axios.post("http://localhost:5000/devices/allocations", formData)
-      if (response.status === 200 || response.status === 201) {
-        alert("Device allocated successfully")
+      // Add the department to the form data before sending
+      const dataToSubmit = {
+        ...formData,
+        department: DEPARTMENT,
+      }
+
+      const response = await axios.post("http://localhost:5000/devices/allocations", dataToSubmit)
+
+      if (response.status === 201) {
+        alert("Allocation successful")
         setFormData({
-          deviceType: "",
-          assignedTo: "",
+          recipient: "",
+          allocator: "",
           lab: "",
-          assignedBy: "",
-          date: "",
+          dateOfAllocation: new Date().toISOString().split("T")[0],
+          items: [],
         })
-      } else {
-        throw new Error("Unexpected response status")
+        fetchAvailability()
       }
     } catch (error) {
-      console.error("Error allocating device:", error)
-      alert("Failed to allocate device: " + (error.response?.data?.error || error.message))
+      const errorMessage = error.response?.data?.error || error.message
+      setError(`Error creating allocation: ${errorMessage}`)
+    } finally {
+      setLoading(false)
     }
   }
 
+  // Utility function to get bill number from bill ID
+  const getBillNoFromId = (itemName, billId) => {
+    const bills = availability[itemName]?.bills || []
+    const bill = bills.find((b) => b.billId === billId)
+    return bill ? bill.billNo : "Unknown"
+  }
+
   return (
-    <div className="bg-white shadow rounded-lg p-6 max-w-md mx-auto">
-      <h2 className="text-2xl font-semibold mb-6">Allocate Device</h2>
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div>
-          <label htmlFor="deviceType" className="block text-sm font-medium text-gray-700">
-            Device Type
-          </label>
-          <div className="relative mt-1">
-            <input
-              type="text"
-              id="deviceType"
-              name="deviceType"
-              value={formData.deviceType}
-              onChange={handleDeviceSearch}
-              onFocus={() => setIsDropdownOpen(true)}
-              onBlur={() => setTimeout(() => setIsDropdownOpen(false), 200)}
-              required
-              className="block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm pr-10"
-              placeholder="Search for a device"
-            />
-            <div className="absolute inset-y-0 right-0 flex items-center pr-2 pointer-events-none">
-              <svg
-                className="h-5 w-5 text-gray-400"
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 20 20"
-                fill="currentColor"
-                aria-hidden="true"
-              >
-                <path
-                  fillRule="evenodd"
-                  d="M10 3a1 1 0 01.707.293l3 3a1 1 0 01-1.414 1.414L10 5.414 7.707 7.707a1 1 0 01-1.414-1.414l3-3A1 1 0 0110 3zm-3.707 9.293a1 1 0 011.414 0L10 14.586l2.293-2.293a1 1 0 011.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z"
-                  clipRule="evenodd"
-                />
-              </svg>
-            </div>
-            {isDropdownOpen && filteredDeviceOptions.length > 0 && (
-              <ul className="absolute z-10 mt-1 w-full bg-white shadow-lg max-h-60 rounded-md py-1 text-base ring-1 ring-black ring-opacity-5 overflow-auto focus:outline-none sm:text-sm">
-                {filteredDeviceOptions.map((option) => (
-                  <li
-                    key={option}
-                    className="text-gray-900 cursor-default select-none relative py-2 pl-3 pr-9 hover:bg-indigo-600 hover:text-white"
-                    onMouseDown={() => {
-                      setFormData({ ...formData, deviceType: option })
-                      setIsDropdownOpen(false)
-                    }}
-                  >
-                    {option}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </div>
+    <form onSubmit={handleSubmit} className="space-y-6">
+      <h2 className="text-2xl font-bold mb-4">Device Allocation Form</h2>
 
-        <div>
-          <label htmlFor="assignedTo" className="block text-sm font-medium text-gray-700">
-            Assigned To
-          </label>
-          <input
-            type="text"
-            id="assignedTo"
-            name="assignedTo"
-            value={formData.assignedTo}
-            onChange={handleChange}
-            required
-            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-          />
-        </div>
+      {error && (
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
 
+      <div className="grid grid-cols-2 gap-4">
         <div>
-          <label htmlFor="lab" className="block text-sm font-medium text-gray-700">
-            Lab
-          </label>
-          <input
-            type="text"
-            id="lab"
-            name="lab"
-            value={formData.lab}
-            onChange={handleChange}
-            required
-            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-          />
+          <Label htmlFor="recipient">Recipient</Label>
+          <Input id="recipient" name="recipient" value={formData.recipient} onChange={handleInputChange} required />
         </div>
-
         <div>
-          <label htmlFor="assignedBy" className="block text-sm font-medium text-gray-700">
-            Assigned By
-          </label>
-          <input
-            type="text"
-            id="assignedBy"
-            name="assignedBy"
-            value={formData.assignedBy}
-            onChange={handleChange}
-            required
-            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-          />
+          <Label htmlFor="allocator">Allocator</Label>
+          <Input id="allocator" name="allocator" value={formData.allocator} onChange={handleInputChange} required />
         </div>
-
         <div>
-          <label htmlFor="date" className="block text-sm font-medium text-gray-700">
-            Date
-          </label>
-          <input
+          <Label htmlFor="lab">Lab</Label>
+          <Input id="lab" name="lab" value={formData.lab} onChange={handleInputChange} required />
+        </div>
+        <div>
+          <Label htmlFor="dateOfAllocation">Date of Allocation</Label>
+          <Input
+            id="dateOfAllocation"
+            name="dateOfAllocation"
             type="date"
-            id="date"
-            name="date"
-            value={formData.date}
-            onChange={handleChange}
+            value={formData.dateOfAllocation}
+            onChange={handleInputChange}
             required
-            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
           />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-3 gap-4">
+        <div>
+          <Label>Select Item</Label>
+          <Select value={selectedItem} onValueChange={handleItemSelection}>
+            <SelectTrigger>
+              <SelectValue placeholder="Select an item" />
+            </SelectTrigger>
+            <SelectContent className="bg-white">
+              <ScrollArea className="h-[200px]">
+                {Object.entries(availability).map(([itemName, { totalAvailable }]) => (
+                  <SelectItem key={itemName} value={itemName} disabled={totalAvailable === 0}>
+                    {itemName} (Available: {totalAvailable})
+                  </SelectItem>
+                ))}
+              </ScrollArea>
+            </SelectContent>
+          </Select>
         </div>
 
         <div>
-          <button
-            type="submit"
-            className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-          >
-            Allocate Device
-          </button>
+          <Label>Select Bill</Label>
+          <Select value={selectedBill} onValueChange={handleBillSelection} disabled={!selectedItem}>
+            <SelectTrigger>
+              <SelectValue placeholder={selectedItem ? "Select a bill" : "Select an item first"} />
+            </SelectTrigger>
+            <SelectContent className="bg-white">
+              <ScrollArea className="h-[200px]">
+                {selectedItem &&
+                  availability[selectedItem]?.bills.map((bill) => (
+                    <SelectItem key={bill.billId} value={bill.billId} disabled={bill.availableQuantity <= 0}>
+                      Bill #{bill.billNo} (Available: {bill.availableQuantity})
+                    </SelectItem>
+                  ))}
+              </ScrollArea>
+            </SelectContent>
+          </Select>
         </div>
-      </form>
-    </div>
+
+        <div className="flex items-end">
+          <Button 
+            type="button" 
+            onClick={handleAddItem} 
+            disabled={!selectedItem || !selectedBill || loading}
+            className="w-full"
+          >
+            Add Item
+          </Button>
+        </div>
+      </div>
+
+      <ScrollArea className="h-[300px] border rounded-md">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Item Name</TableHead>
+              <TableHead>Bill No</TableHead>
+              <TableHead>Available Quantity</TableHead>
+              <TableHead>Allocation Quantity</TableHead>
+              <TableHead>Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {formData.items.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={5} className="text-center text-gray-500">
+                  No items added yet
+                </TableCell>
+              </TableRow>
+            ) : (
+              formData.items.map((item, index) => {
+                // Find the bill for this item
+                const billsWithItem = availability[item.itemName]?.bills || []
+                const matchingBill = billsWithItem.find((bill) => bill.billId === item.billId)
+                const maxAvailable = matchingBill?.availableQuantity || 0
+
+                return (
+                  <TableRow key={index}>
+                    <TableCell>{item.itemName}</TableCell>
+                    <TableCell>{getBillNoFromId(item.itemName, item.billId)}</TableCell>
+                    <TableCell>{maxAvailable}</TableCell>
+                    <TableCell>
+                      <div className="flex items-center space-x-2">
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="outline"
+                          onClick={() => handleQuantityChange(index, item.quantity - 1)}
+                          disabled={item.quantity <= 1 || loading}
+                        >
+                          <Minus className="h-4 w-4" />
+                        </Button>
+                        <Input
+                          type="number"
+                          value={item.quantity}
+                          onChange={(e) => handleQuantityChange(index, Number.parseInt(e.target.value))}
+                          className="w-20"
+                          min="1"
+                          max={maxAvailable}
+                          disabled={loading}
+                        />
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="outline"
+                          onClick={() => handleQuantityChange(index, item.quantity + 1)}
+                          disabled={item.quantity >= maxAvailable || loading}
+                        >
+                          <Plus className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        onClick={() => handleRemoveItem(index)}
+                        disabled={loading}
+                      >
+                        Remove
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                )
+              })
+            )}
+          </TableBody>
+        </Table>
+      </ScrollArea>
+
+      <div className="flex justify-end">
+        <Button type="submit" disabled={loading} className="px-6">
+          {loading ? "Creating Allocation..." : "Create Allocation"}
+        </Button>
+      </div>
+    </form>
   )
 }
-
-export default DeviceAllocationForm
-

@@ -1,199 +1,589 @@
-import React, { useEffect, useState } from 'react';
-import axios from 'axios';
-import { Pencil, Trash2, ToggleLeft, ToggleRight, Search } from 'lucide-react';
+"use client"
 
-function AllocationList() {
-  const [allocations, setAllocations] = useState([]);
-  const [editingId, setEditingId] = useState(null);
-  const [editForm, setEditForm] = useState({});
-  const [searchTerm, setSearchTerm] = useState('');
+import { useState, useEffect } from "react"
+import axios from "axios"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table"
+import { Input } from "./ui/input"
+import { Button } from "./ui/button"
+import { Search, RefreshCw, Edit, Trash2, AlertCircle, Filter, Eye, Calendar } from "lucide-react"
+import { Alert, AlertDescription } from "./ui/alert"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "./ui/dialog"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select"
+import { Label } from "./ui/label"
+import { ScrollArea } from "./ui/scroll-area"
+import { Card, CardContent } from "./ui/card"
+import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip"
+
+export default function AllocationList() {
+  const [allocations, setAllocations] = useState([])
+  const [searchTerm, setSearchTerm] = useState("")
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState("")
+  const [isRefreshing, setIsRefreshing] = useState(false)
+  const [selectedAllocation, setSelectedAllocation] = useState(null)
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
+  const [isDetailsDialogOpen, setIsDetailsDialogOpen] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [editFormData, setEditFormData] = useState(null)
+  const [filterOption, setFilterOption] = useState("all")
+  const [dateRange, setDateRange] = useState({ 
+    startDate: "", 
+    endDate: "" 
+  })
 
   useEffect(() => {
-    fetchAllocations();
-  }, []);
+    fetchAllocations()
+  }, [])
 
   const fetchAllocations = async () => {
+    setLoading(true)
+    setError("")
     try {
-      const response = await axios.get('http://localhost:5000/devices/allocations');
-      setAllocations(response.data);
+      const response = await axios.get("http://localhost:5000/devices/allocations")
+      setAllocations(response.data)
+      setLoading(false)
     } catch (error) {
-      console.error('Error fetching allocations:', error);
-      alert('Failed to fetch allocations');
+      console.error("Error fetching allocations:", error)
+      setError("Failed to load allocations. Please try again.")
+      setLoading(false)
     }
-  };
+  }
 
-  const handleEdit = (allocation) => {
-    setEditingId(allocation._id);
-    setEditForm(allocation);
-  };
+  const handleRefresh = async () => {
+    setIsRefreshing(true)
+    await fetchAllocations()
+    setTimeout(() => setIsRefreshing(false), 500) // Visual feedback for refresh action
+  }
 
-  const handleEditChange = (e) => {
-    setEditForm({ ...editForm, [e.target.name]: e.target.value });
-  };
+  const handleDeleteClick = (allocation) => {
+    setSelectedAllocation(allocation)
+    setIsDeleteDialogOpen(true)
+  }
 
-  const handleEditSubmit = async (e) => {
-    e.preventDefault();
+  const handleEditClick = (allocation) => {
+    setSelectedAllocation(allocation)
+    setEditFormData({
+      recipient: allocation.recipient,
+      allocator: allocation.allocator,
+      lab: allocation.lab,
+      dateOfAllocation: new Date(allocation.dateOfAllocation).toISOString().split("T")[0],
+      // Items are not editable in this simplified version
+    })
+    setIsEditDialogOpen(true)
+  }
+
+  const handleViewDetails = (allocation) => {
+    setSelectedAllocation(allocation)
+    setIsDetailsDialogOpen(true)
+  }
+
+  const confirmDelete = async () => {
+    if (!selectedAllocation) return
+    
+    setIsDeleting(true)
     try {
-      await axios.put(`http://localhost:5000/devices/allocations/${editingId}`, editForm);
-      setEditingId(null);
-      fetchAllocations();
+      await axios.delete(`http://localhost:5000/devices/allocations/${selectedAllocation._id}`)
+      setAllocations(allocations.filter(a => a._id !== selectedAllocation._id))
+      setIsDeleteDialogOpen(false)
+      setSelectedAllocation(null)
     } catch (error) {
-      console.error('Error updating allocation:', error);
-      alert('Failed to update allocation');
+      setError(`Failed to delete allocation: ${error.response?.data?.error || error.message}`)
+    } finally {
+      setIsDeleting(false)
     }
-  };
+  }
 
-  const handleDelete = async (id) => {
-    if (window.confirm('Are you sure you want to delete this allocation?')) {
-      try {
-        await axios.delete(`http://localhost:5000/devices/allocations/${id}`);
-        fetchAllocations();
-      } catch (error) {
-        console.error('Error deleting allocation:', error);
-        alert('Failed to delete allocation');
-      }
-    }
-  };
+  const handleEditInputChange = (e) => {
+    setEditFormData({
+      ...editFormData,
+      [e.target.name]: e.target.value
+    })
+  }
 
-  const handleToggleStatus = async (id) => {
+  const submitEdit = async (e) => {
+    e.preventDefault()
+    if (!selectedAllocation || !editFormData) return
+    
     try {
-      await axios.patch(`http://localhost:5000/devices/allocations/${id}/toggle-status`);
-      fetchAllocations();
+      const response = await axios.put(
+        `http://localhost:5000/devices/allocations/${selectedAllocation._id}`, 
+        editFormData
+      )
+      
+      // Update the allocation in the local state
+      setAllocations(allocations.map(a => 
+        a._id === selectedAllocation._id ? { ...a, ...editFormData } : a
+      ))
+      
+      setIsEditDialogOpen(false)
+      setSelectedAllocation(null)
     } catch (error) {
-      console.error('Error toggling status:', error);
-      alert('Failed to toggle status');
+      setError(`Failed to update allocation: ${error.response?.data?.error || error.message}`)
     }
-  };
+  }
 
-  const filteredAllocations = allocations.filter(allocation =>
-    allocation.assignedTo.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const handleDateRangeChange = (e) => {
+    setDateRange({
+      ...dateRange,
+      [e.target.name]: e.target.value
+    })
+  }
 
-  const activeAllocations = filteredAllocations.filter(allocation => allocation.status === 'active');
-  const inactiveAllocations = filteredAllocations.filter(allocation => allocation.status === 'inactive');
+  const clearDateFilter = () => {
+    setDateRange({ startDate: "", endDate: "" })
+  }
 
-  const renderAllocationTable = (allocations) => (
-    <table className="min-w-full divide-y divide-gray-200">
-      <thead className="bg-gray-50">
-        <tr>
-          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Device Type</th>
-          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Assigned To</th>
-          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Lab</th>
-          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Assigned By</th>
-          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-        </tr>
-      </thead>
-      <tbody className="bg-white divide-y divide-gray-200">
-        {allocations.map((allocation) => (
-          <tr key={allocation._id}>
-            {editingId === allocation._id ? (
-              <td colSpan="7" className="px-6 py-4">
-                <form onSubmit={handleEditSubmit} className="space-y-4">
-                  <input
-                    type="text"
-                    name="deviceType"
-                    value={editForm.deviceType}
-                    onChange={handleEditChange}
-                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                  />
-                  <input
-                    type="text"
-                    name="assignedTo"
-                    value={editForm.assignedTo}
-                    onChange={handleEditChange}
-                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                  />
-                  <input
-                    type="text"
-                    name="lab"
-                    value={editForm.lab}
-                    onChange={handleEditChange}
-                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                  />
-                  <input
-                    type="text"
-                    name="assignedBy"
-                    value={editForm.assignedBy}
-                    onChange={handleEditChange}
-                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                  />
-                  <input
-                    type="date"
-                    name="date"
-                    value={editForm.date.split('T')[0]}
-                    onChange={handleEditChange}
-                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                  />
-                  <div>
-                    <button type="submit" className="bg-indigo-600 text-white px-4 py-2 rounded-md mr-2">Save</button>
-                    <button type="button" onClick={() => setEditingId(null)} className="bg-gray-300 text-gray-700 px-4 py-2 rounded-md">Cancel</button>
-                  </div>
-                </form>
-              </td>
-            ) : (
-              <>
-                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{allocation.deviceType}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{allocation.assignedTo}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{allocation.lab}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{allocation.assignedBy}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{new Date(allocation.date).toLocaleDateString()}</td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                    allocation.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                  }`}>
-                    {allocation.status}
-                  </span>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                  <button onClick={() => handleEdit(allocation)} className="text-indigo-600 hover:text-indigo-900 mr-2">
-                    <Pencil className="w-5 h-5" />
-                  </button>
-                  <button onClick={() => handleDelete(allocation._id)} className="text-red-600 hover:text-red-900 mr-2">
-                    <Trash2 className="w-5 h-5" />
-                  </button>
-                  <button onClick={() => handleToggleStatus(allocation._id)} className="text-gray-600 hover:text-gray-900">
-                    {allocation.status === 'active' ? <ToggleRight className="w-5 h-5" /> : <ToggleLeft className="w-5 h-5" />}
-                  </button>
-                </td>
-              </>
-            )}
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
+  const formatAllocationBreakdown = (items) => {
+    return items
+      .map((item) => {
+        const billNo = item.billId.billNo
+        const total = item.billId.items.find((i) => i.name === item.itemName).quantity
+        return `${billNo}/${item.startNumber}/${total} to ${billNo}/${item.endNumber}/${total}`
+      })
+      .join(" & ")
+  }
+
+  // Apply filters and search
+  const filteredAllocations = allocations.filter((allocation) => {
+    // Search term filtering
+    const matchesSearch = 
+      allocation.recipient.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      allocation.allocator.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      allocation.lab.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      allocation.items.some(item => item.itemName.toLowerCase().includes(searchTerm.toLowerCase()))
+
+    // Date range filtering
+    const allocationDate = new Date(allocation.dateOfAllocation)
+    const startDateMatch = dateRange.startDate ? allocationDate >= new Date(dateRange.startDate) : true
+    const endDateMatch = dateRange.endDate ? allocationDate <= new Date(dateRange.endDate) : true
+    const matchesDateRange = startDateMatch && endDateMatch
+
+    // Type filtering
+    if (filterOption === "all") {
+      return matchesSearch && matchesDateRange
+    } else if (filterOption === "recent") {
+      const oneWeekAgo = new Date()
+      oneWeekAgo.setDate(oneWeekAgo.getDate() - 7)
+      return matchesSearch && matchesDateRange && new Date(allocation.dateOfAllocation) >= oneWeekAgo
+    }
+    
+    return matchesSearch && matchesDateRange
+  })
+
+  const sortedAllocations = [...filteredAllocations].sort((a, b) => 
+    new Date(b.dateOfAllocation) - new Date(a.dateOfAllocation)
+  )
+
+  // Helper function to format date range display
+  const getDateRangeDisplayText = () => {
+    if (dateRange.startDate && dateRange.endDate) {
+      return `${new Date(dateRange.startDate).toLocaleDateString()} - ${new Date(dateRange.endDate).toLocaleDateString()}`
+    } else if (dateRange.startDate) {
+      return `From ${new Date(dateRange.startDate).toLocaleDateString()}`
+    } else if (dateRange.endDate) {
+      return `Until ${new Date(dateRange.endDate).toLocaleDateString()}`
+    }
+    return "Filter by date range"
+  }
 
   return (
-    <div className="bg-white shadow rounded-lg overflow-hidden">
-      <div className="px-4 py-5 sm:px-6">
-        <h2 className="text-lg leading-6 font-medium text-gray-900">Device Allocations</h2>
-        <div className="mt-4 relative rounded-md shadow-sm">
-          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-            <Search className="h-5 w-5 text-gray-400" />
-          </div>
-          <input
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-2xl font-bold">Allocation List</h2>
+        <Button 
+          variant="outline" 
+          size="sm" 
+          onClick={handleRefresh} 
+          disabled={isRefreshing}
+          className="flex items-center gap-1"
+        >
+          <RefreshCw className={`w-4 h-4 ${isRefreshing ? "animate-spin" : ""}`} />
+          Refresh
+        </Button>
+      </div>
+      
+      {error && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+      
+      <div className="flex flex-col sm:flex-row gap-4">
+        <div className="flex items-center space-x-2 flex-1">
+          <Search className="w-5 h-5 text-gray-500" />
+          <Input
             type="text"
-            className="focus:ring-indigo-500 focus:border-indigo-500 block w-full pl-10 sm:text-sm border-gray-300 rounded-md"
-            placeholder="Search by assigned person"
+            placeholder="Search by recipient, allocator, lab or item..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
+            className="flex-1"
           />
         </div>
+        
+        <div className="flex items-center gap-2">
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="sm" className="flex items-center gap-1">
+                <Calendar className="h-4 w-4" />
+                {dateRange.startDate || dateRange.endDate ? getDateRangeDisplayText() : "Filter by date range"}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-4" align="end">
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="startDate">Start Date</Label>
+                  <Input
+                    id="startDate"
+                    name="startDate"
+                    type="date"
+                    value={dateRange.startDate}
+                    onChange={handleDateRangeChange}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="endDate">End Date</Label>
+                  <Input
+                    id="endDate"
+                    name="endDate"
+                    type="date"
+                    value={dateRange.endDate}
+                    onChange={handleDateRangeChange}
+                    min={dateRange.startDate}
+                  />
+                </div>
+                {(dateRange.startDate || dateRange.endDate) && (
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    onClick={clearDateFilter}
+                    className="w-full mt-2"
+                  >
+                    Clear Date Filter
+                  </Button>
+                )}
+              </div>
+            </PopoverContent>
+          </Popover>
+          
+          <Select value={filterOption} onValueChange={setFilterOption}>
+            <SelectTrigger className="w-[140px]">
+              <div className="flex items-center">
+                <Filter className="w-4 h-4 mr-2" />
+                <SelectValue placeholder="Filter" />
+              </div>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Allocations</SelectItem>
+              <SelectItem value="recent">Recent (7 days)</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
-      <div className="border-t border-gray-200">
-        <h3 className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-gray-50">Active Allocations</h3>
-        {renderAllocationTable(activeAllocations)}
-        <h3 className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-gray-50 mt-6">Inactive Allocations</h3>
-        {renderAllocationTable(inactiveAllocations)}
-        {filteredAllocations.length === 0 && (
-          <p className="text-center py-4 text-gray-500">No allocations available.</p>
-        )}
+      
+      <div className="text-sm text-gray-500">
+        Showing {filteredAllocations.length} of {allocations.length} allocations
       </div>
+      
+      <ScrollArea className="h-[500px] border rounded-md">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Recipient</TableHead>
+              <TableHead>Allocator</TableHead>
+              <TableHead>Lab</TableHead>
+              <TableHead>Date</TableHead>
+              <TableHead>Items</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {loading ? (
+              <TableRow>
+                <TableCell colSpan={6} className="h-24 text-center">
+                  Loading allocations...
+                </TableCell>
+              </TableRow>
+            ) : sortedAllocations.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={6} className="h-24 text-center">
+                  {searchTerm || dateRange.startDate || dateRange.endDate || filterOption !== "all" 
+                    ? "No allocations match your filters." 
+                    : "No allocations found."}
+                </TableCell>
+              </TableRow>
+            ) : (
+              sortedAllocations.map((allocation) => (
+                <TableRow key={allocation._id}>
+                  <TableCell className="font-medium">{allocation.recipient}</TableCell>
+                  <TableCell>{allocation.allocator}</TableCell>
+                  <TableCell>{allocation.lab}</TableCell>
+                  <TableCell>{new Date(allocation.dateOfAllocation).toLocaleDateString()}</TableCell>
+                  <TableCell>
+                    <ul className="list-disc list-inside">
+                      {allocation.items.slice(0, 2).map((item, index) => (
+                        <li key={index} className="text-sm">
+                          {item.itemName} - Qty: {item.allocatedQuantity}
+                        </li>
+                      ))}
+                      {allocation.items.length > 2 && (
+                        <li className="text-xs text-blue-500 italic">
+                          +{allocation.items.length - 2} more items...
+                        </li>
+                      )}
+                    </ul>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex justify-end gap-2">
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              onClick={() => handleViewDetails(allocation)}
+                              className="bg-white hover:bg-gray-100 border"
+                            >
+                              <Eye className="h-4 w-4 text-blue-600" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent side="top">
+                            <p>View Details</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                      
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              onClick={() => handleEditClick(allocation)}
+                              className="bg-white hover:bg-gray-100 border"
+                            >
+                              <Edit className="h-4 w-4 text-amber-600" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent side="top">
+                            <p>Edit Allocation</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                      
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              onClick={() => handleDeleteClick(allocation)}
+                              className="bg-white hover:bg-gray-100 border"
+                            >
+                              <Trash2 className="h-4 w-4 text-red-600" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent side="top">
+                            <p>Delete Allocation</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </ScrollArea>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <DialogContent className="bg-white text-black shadow-lg">
+          <DialogHeader>
+            <DialogTitle className="text-black">Confirm Deletion</DialogTitle>
+          </DialogHeader>
+          <p className="text-gray-800">
+            Are you sure you want to delete the allocation for{" "}
+            <span className="font-semibold">{selectedAllocation?.recipient}</span>?
+          </p>
+          <p className="text-sm text-gray-600">This action cannot be undone.</p>
+          <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => setIsDeleteDialogOpen(false)}
+            disabled={isDeleting}
+            className="border-gray-400 text-gray-800 hover:bg-gray-100"
+          >
+           Cancel
+          </Button>
+          <Button
+            variant="destructive"
+            onClick={confirmDelete}
+            disabled={isDeleting}
+            className="bg-red-600 text-white hover:bg-red-700"
+          >
+          {isDeleting ? "Deleting..." : "Delete"}
+          </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+
+      {/* Edit Dialog */}
+      {/* Edit Dialog */}
+<Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+  <DialogContent className="bg-white text-black shadow-lg sm:max-w-md">
+    <DialogHeader>
+      <DialogTitle className="text-black">Edit Allocation</DialogTitle>
+    </DialogHeader>
+    {editFormData && (
+      <form onSubmit={submitEdit} className="space-y-4">
+        <div className="grid gap-4">
+          <div className="grid gap-2">
+            <Label htmlFor="recipient" className="text-gray-800">Recipient</Label>
+            <Input
+              id="recipient"
+              name="recipient"
+              value={editFormData.recipient}
+              onChange={handleEditInputChange}
+              required
+              className="border-gray-400 text-gray-900"
+            />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="allocator" className="text-gray-800">Allocator</Label>
+            <Input
+              id="allocator"
+              name="allocator"
+              value={editFormData.allocator}
+              onChange={handleEditInputChange}
+              required
+              className="border-gray-400 text-gray-900"
+            />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="lab" className="text-gray-800">Lab</Label>
+            <Input
+              id="lab"
+              name="lab"
+              value={editFormData.lab}
+              onChange={handleEditInputChange}
+              required
+              className="border-gray-400 text-gray-900"
+            />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="dateOfAllocation" className="text-gray-800">Date of Allocation</Label>
+            <Input
+              id="dateOfAllocation"
+              name="dateOfAllocation"
+              type="date"
+              value={editFormData.dateOfAllocation}
+              onChange={handleEditInputChange}
+              required
+              className="border-gray-400 text-gray-900"
+            />
+          </div>
+          <p className="text-sm text-amber-600">
+            Note: Item details cannot be edited. To modify items, delete this allocation and create a new one.
+          </p>
+        </div>
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => setIsEditDialogOpen(false)}
+            className="border-gray-400 text-gray-800 hover:bg-gray-100"
+          >
+            Cancel
+          </Button>
+          <Button type="submit" className="bg-blue-600 text-white hover:bg-blue-700">
+            Save Changes
+          </Button>
+        </DialogFooter>
+      </form>
+    )}
+  </DialogContent>
+</Dialog>
+
+{/* Details Dialog */}
+<Dialog open={isDetailsDialogOpen} onOpenChange={setIsDetailsDialogOpen}>
+  <DialogContent className="bg-white text-black shadow-lg sm:max-w-lg">
+    <DialogHeader>
+      <DialogTitle className="text-black">Allocation Details</DialogTitle>
+    </DialogHeader>
+    {selectedAllocation && (
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 gap-2">
+          <Card className="bg-gray-50">
+            <CardContent className="pt-4">
+              <p className="text-sm text-gray-600">Recipient</p>
+              <p className="font-medium text-black">{selectedAllocation.recipient}</p>
+            </CardContent>
+          </Card>
+          <Card className="bg-gray-50">
+            <CardContent className="pt-4">
+              <p className="text-sm text-gray-600">Allocator</p>
+              <p className="font-medium text-black">{selectedAllocation.allocator}</p>
+            </CardContent>
+          </Card>
+          <Card className="bg-gray-50">
+            <CardContent className="pt-4">
+              <p className="text-sm text-gray-600">Lab</p>
+              <p className="font-medium text-black">{selectedAllocation.lab}</p>
+            </CardContent>
+          </Card>
+          <Card className="bg-gray-50">
+            <CardContent className="pt-4">
+              <p className="text-sm text-gray-600">Date</p>
+              <p className="font-medium text-black">
+                {new Date(selectedAllocation.dateOfAllocation).toLocaleDateString()}
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+        
+        <Card className="bg-gray-50">
+          <CardContent className="pt-4">
+            <h3 className="font-semibold mb-2 text-black">Allocated Items</h3>
+            <ScrollArea className="max-h-[200px]">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="text-gray-800">Item</TableHead>
+                    <TableHead className="text-gray-800">Quantity</TableHead>
+                    <TableHead className="text-gray-800">Breakdown</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {selectedAllocation.items.map((item, idx) => (
+                    <TableRow key={idx}>
+                      <TableCell className="text-gray-900">{item.itemName}</TableCell>
+                      <TableCell className="text-gray-900">{item.allocatedQuantity}</TableCell>
+                      <TableCell className="text-xs text-gray-700">
+                        {formatAllocationBreakdown([item])}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </ScrollArea>
+          </CardContent>
+        </Card>
+        
+        <DialogFooter>
+          <Button onClick={() => setIsDetailsDialogOpen(false)} className="bg-gray-200 text-black hover:bg-gray-300">
+            Close
+          </Button>
+        </DialogFooter>
+      </div>
+    )}
+  </DialogContent>
+</Dialog>
+
     </div>
-  );
+  )
 }
-
-export default AllocationList;
-
